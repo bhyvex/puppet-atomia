@@ -61,7 +61,7 @@ class puppet()
     }
 
   # Set up specs
-  file { '/vagrant/spec/fixtures/modules/atomia':
+  file { ['/vagrant/spec', '/vagrant/spec/fixtures', '/vagrant/spec/fixtures/modules', '/vagrant/spec/fixtures/modules/atomia']:
     ensure  => directory
   }
 
