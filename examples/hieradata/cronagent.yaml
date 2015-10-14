@@ -1,9 +1,10 @@
 # cronagent.yaml
 # Defines classes and variables needed to
-# deploy a cron agent 
+# deploy a cron agent
 ---
 classes:
+  - atomia::adjoin
   - atomia::cronagent
-  - atomia::nagios::client
 
-atomia::cronagent::global_auth_token: "token123"
+atomia::cronagent::base_url: "http://192.0.2.117:10101"
+atomia::cronagent::global_auth_token: "SeriousPa55"

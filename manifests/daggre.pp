@@ -1,4 +1,10 @@
-class atomia::daggre ($global_auth_token, $ip_addr = $ipaddress, $content_share_nfs_location = '', $config_share_nfs_location = '', $use_nfs3 = true ) {
+class atomia::daggre (
+	$global_auth_token, 
+	$ip_addr = $ipaddress, 
+	$content_share_nfs_location = '', 
+	$config_share_nfs_location = '', 
+	$use_nfs3 = true 
+	) {
   
   include atomia::mongodb
 
@@ -9,7 +15,7 @@ class atomia::daggre ($global_auth_token, $ip_addr = $ipaddress, $content_share_
 
     package { nodejs:
       ensure  => latest,
-      require => [Apt::Ppa['ppa:chris-lea/node.js'], Exec['apt-get-update']]
+      require => [Apt::Ppa['ppa:chris-lea/node.js'], Exec['apt-get-update'], Package['python-software-properties']]
     }
 
     exec { "apt-get-update": command => "/usr/bin/apt-get update" }
@@ -17,6 +23,10 @@ class atomia::daggre ($global_auth_token, $ip_addr = $ipaddress, $content_share_
     package { nodejs: ensure => present, }
   }
 
+  package { python-software-properties:
+    ensure => present,
+  }  
+  
   package { "daggre":
     ensure  => present,
     require => [Package["mongodb-10gen"], Package["nodejs"]],
