@@ -58,12 +58,26 @@ class atomia::apache_agent (
   $use_nfs3 = 1,
   $cluster_ip = "",
   $apache_agent_ip = $ipaddress,
-  $maps_path = "/storage/configuration/apache/maps"
-  
+  $maps_path = "/storage/configuration/maps",
   ) {
-    
+
+  if $lsbdistrelease == "14.04" {
+    $pa_conf_available_path = "/etc/apache2/conf-available"
+    $pa_conf_file = "atomia-pa-apache.conf"
+    $pa_site = "000-default.conf"
+    $pa_site_enabled = "000-default.conf"
+  } else {
+    $pa_conf_available_path = "/etc/apache2/conf.d"   
+    $pa_conf_file = "atomia-pa-apache.conf.ubuntu"
+    $pa_site = "default"
+    $pa_site_enabled = "000-default"
+  }
+  
   if $should_have_pa_apache == 1 {
-    package { atomia-pa-apache: ensure => present }
+    package { atomia-pa-apache: 
+      ensure => present,
+      require => Package["apache2"],
+    }
   }
 
   package { atomiastatisticscopy: ensure => present }
@@ -97,6 +111,7 @@ class atomia::apache_agent (
 
   package { php5-pgsql: ensure => installed }
 
+  # SSL support
   if $ssl_enabled != 0 {
     $ssl_generate_var = "ssl"
 
@@ -132,7 +147,6 @@ class atomia::apache_agent (
     $ssl_generate_var = "nossl"
   }
   
-  
   atomia::nfsmount { 'mount_content':
     use_nfs3 => $use_nfs3,
     mount_point => '/storage/content',
@@ -144,13 +158,11 @@ class atomia::apache_agent (
     mount_point => '/storage/configuration',
     nfs_location => $config_share_nfs_location
   }
-   
 
-    
   if $atomia_clustered != 0 {
-    exec { "/bin/sed 's/%h/%{X-Forwarded-For}i/' -i /etc/apache2/conf.d/atomia-pa-apache.conf.ubuntu":
-      unless  => "/bin/grep 'X-Forwarded-For' /etc/apache2/conf.d/atomia-pa-apache.conf.ubuntu",
-      require => [Package["atomia-pa-apache"], File["/etc/apache2/conf.d/atomia-pa-apache.conf.ubuntu"]],
+    exec { "/bin/sed 's/%h/%{X-Forwarded-For}i/' -i ${$pa_conf_available_path}/${$pa_conf_file}":
+      unless  => "/bin/grep 'X-Forwarded-For' ${$pa_conf_available_path}/${$pa_conf_file}",
+      require => Package["atomia-pa-apache"],
       notify  => Exec["force-reload-apache"],
     }
   }
@@ -165,9 +177,10 @@ class atomia::apache_agent (
     }
   }
 
-  file { "/etc/apache2/conf.d/atomia-pa-apache.conf.ubuntu":
-      content => template("atomia/apache_agent/atomia-pa-apache.conf.ubuntu.erb"),
-	  require => Package["atomia-pa-apache"],
+  file { "${$pa_conf_available_path}/${$pa_conf_file}":
+      ensure  => present,
+      content => template("atomia/apache_agent/atomia-pa-apache.conf.$lsbdistcodename.erb"),
+      require => [Package["atomia-pa-apache"]],
   }
 
   file { "/etc/statisticscopy.conf":
@@ -178,26 +191,10 @@ class atomia::apache_agent (
     require => Package["atomiastatisticscopy"],
   }
 
-  file { "/var/log/httpd":
-    owner  => root,
-    group  => root,
-    mode   => 600,
-    ensure => directory,
-    before => Service["apache2"],
-  }
-
   file { "/var/www/cgi-wrappers": mode => 755, }
 
   # ensuring we have maps folder and needed files inside
   file { "${$maps_path}":
-    owner  => root,
-    group  => www-data,
-    mode   => 2750,
-    ensure => directory,
-	recurse => true,
-  }
-
-  file { "/storage/configuration/apache":
     owner  => root,
     group  => www-data,
     mode   => 2750,
@@ -261,23 +258,23 @@ class atomia::apache_agent (
     require => File["${$maps_path}"],
   }
 
-  if !defined(File['/etc/apache2/sites-enabled/000-default']) {
-    file { "/etc/apache2/sites-enabled/000-default":
+  if !defined(File["/etc/apache2/sites-enabled/${$pa_site_enabled}"]) {
+    file { "/etc/apache2/sites-enabled/${$pa_site_enabled}":
       ensure  => absent,
       require => Package["apache2"],
       notify  => Service["apache2"],
     }
   }
 
-  if !defined(File['/etc/apache2/sites-available/default']) {
-    file { "/etc/apache2/sites-available/default":
+  if !defined(File["/etc/apache2/sites-available/${$pa_site}"]) {
+    file { "/etc/apache2/sites-available/${$pa_site}":
       ensure  => absent,
       require => Package["apache2"],
       notify  => Service["apache2"],
     }
   }
 
-  file { "/etc/apache2/conf.d/001-custom-errors":
+  file { "${$pa_conf_available_path}/001-custom-errors":
     owner   => root,
     group   => root,
     mode    => 444,
@@ -285,6 +282,15 @@ class atomia::apache_agent (
     require => Package["apache2"],
     notify  => Service["apache2"],
   }
+
+  if $lsbdistrelease == "14.04" {
+    file { "/etc/apache2/conf-enabled/001-custom-errors.conf":
+    ensure  => link,
+    target  => "../conf-available/001-custom-errors",
+    require => File["${$pa_conf_available_path}/001-custom-errors"],
+    notify  => Service["apache2"],
+    }
+  } 
 
   file { "/etc/apache2/suexec/www-data":
     owner   => root,
