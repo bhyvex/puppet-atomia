@@ -5,7 +5,7 @@
 #
 # [password]
 # Define a password for accessing the agent
-# (required) 
+# (required)
 #
 # [content_share_nfs_location]
 # Define where the content nfs share is located
@@ -59,6 +59,10 @@ class atomia::apache_agent (
   $cluster_ip = "",
   $apache_agent_ip = $ipaddress,
   $maps_path = "/storage/configuration/maps",
+  # Set this property to 0 if you don't want to have PHP selector feature
+  $should_have_php_farm = 0,
+  # Set php_version_XX property to desired PHP version
+  $php_versions = ['5.4.45','5.5.29','5.6.10'],
   ) {
 
   if $lsbdistrelease == "14.04" {
@@ -67,14 +71,14 @@ class atomia::apache_agent (
     $pa_site = "000-default.conf"
     $pa_site_enabled = "000-default.conf"
   } else {
-    $pa_conf_available_path = "/etc/apache2/conf.d"   
+    $pa_conf_available_path = "/etc/apache2/conf.d"
     $pa_conf_file = "atomia-pa-apache.conf.ubuntu"
     $pa_site = "default"
     $pa_site_enabled = "000-default"
   }
-  
+
   if $should_have_pa_apache == 1 {
-    package { atomia-pa-apache: 
+    package { atomia-pa-apache:
       ensure => present,
       require => Package["apache2"],
     }
@@ -146,13 +150,13 @@ class atomia::apache_agent (
   } else {
     $ssl_generate_var = "nossl"
   }
-  
+
   atomia::nfsmount { 'mount_content':
     use_nfs3 => $use_nfs3,
     mount_point => '/storage/content',
     nfs_location => $content_share_nfs_location
   }
-  
+
   atomia::nfsmount { 'mount_config':
     use_nfs3 => $use_nfs3,
     mount_point => '/storage/configuration',
@@ -290,7 +294,7 @@ class atomia::apache_agent (
     require => File["${$pa_conf_available_path}/001-custom-errors"],
     notify  => Service["apache2"],
     }
-  } 
+  }
 
   file { "/etc/apache2/suexec/www-data":
     owner   => root,
@@ -340,6 +344,58 @@ class atomia::apache_agent (
       hasstatus => false,
       pattern   => "python /etc/init.d/apache-agent start",
       subscribe => [Package["atomia-pa-apache"], File["/usr/local/apache-agent/settings.cfg"]],
+    }
+  }
+  
+  define arrayPHP {
+    $php_version = $name
+    # Compile PHP and create wrappers 
+    exec { "compile_php_${php_version}" :
+      command => "/opt/phpfarm/src/compile.sh ${$php_version}",
+      creates => "/opt/phpfarm/inst/bin/php-${$php_version}",
+      timeout => 1800,
+      onlyif  => "/usr/bin/test -f /opt/phpfarm/src/options.sh",
+      require => Package["libapache2-mod-fcgid-atomia"],
+    }
+    exec {"check_php_install_${php_version}":
+      command => "/opt/phpfarm/inst/bin/php-${$php_version} --version | grep built",
+      onlyif  => "/usr/bin/test -f /opt/phpfarm/inst/bin/php-${$php_version}",
+    }
+    file { "/var/www/cgi-wrappers/php-fcgid-wrapper-${php_version}":
+      owner   => root,
+      group   => root,
+      mode    => 555,
+      content => template("atomia/apache_agent/php-fcgid-wrapper-custom.erb"),
+      require => [Exec["compile_php_${php_version}"], Exec["check_php_install_${php_version}"]],
+    }
+  }
+  
+  arrayPHP { $php_versions: }
+  
+  if ($should_have_php_farm == 1) and ($lsbdistrelease == "14.04") {
+    # Download prerequisites 
+    $phpcompilepackages = [ git, libxml2, libxml2-dev, libssl-dev, libcurl4-openssl-dev, pkg-config, libicu-dev, libmcrypt-dev, php5-dev, libgeoip-dev, libmagickwand-dev, libjpeg-dev, libpng12-dev, libmysqlclient-dev ]
+    package { $phpcompilepackages:
+      ensure => "installed",
+      require => Package["libapache2-mod-fcgid-atomia"],
+    }
+    exec { "clone_phpfarm_repo" :
+      command => "/usr/bin/git clone git://git.code.sf.net/p/phpfarm/code /opt/phpfarm",
+      unless  => "/usr/bin/test -f /opt/phpfarm/src/options.sh",
+      require => [Package["libapache2-mod-fcgid-atomia"], Package["php5-dev"], Package["git"]],
+    }
+    file { "/opt/phpfarm/src/options.sh":
+      owner   => root,
+      group   => root,
+      mode    => 755,
+      source  => "puppet:///modules/atomia/apache_agent/php-options.sh",
+      require => Exec["clone_phpfarm_repo"],
+    }
+    file { "/etc/apache2/conf/phpversions.conf":
+      owner   => root,
+      group   => root,
+      mode    => 644,
+      content => template("atomia/apache_agent/phpversions.erb"),
     }
   }
 
